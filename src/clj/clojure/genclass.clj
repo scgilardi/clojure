@@ -247,7 +247,7 @@
       
       (when load-impl-ns
         (. gen push "clojure.core")
-        (. gen push "load")
+        (. gen push "load-impl")
         (. gen (invokeStatic rt-type (. Method (getMethod "clojure.lang.Var var(String,String)"))))
         (. gen push (str "/" impl-cname))
         (. gen (invokeInterface ifn-type (new Method "invoke" obj-type (to-types [Object]))))

@@ -42,6 +42,7 @@
       :atoms
       :parallel
       :java-interop
+      :load
       :test
       :test-fixtures
       ;; libraries

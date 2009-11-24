@@ -3945,250 +3945,6 @@
      (when-not (.hasRoot v#)
        (def ~name ~expr))))
 
-;;;;;;;;;;; require/use/load, contributed by Stephen C. Gilardi ;;;;;;;;;;;;;;;;;;
-
-(defonce
-  #^{:private true
-     :doc "A ref to a sorted set of symbols representing loaded libs"}
-  *loaded-libs* (ref (sorted-set)))
-
-(defonce
-  #^{:private true
-     :doc "the set of paths currently being loaded by this thread"}
-  *pending-paths* #{})
-
-(defonce
-  #^{:private true :doc
-     "True while a verbose load is pending"}
-  *loading-verbosely* false)
-
-(defn- throw-if
-  "Throws an exception with a message if pred is true"
-  [pred fmt & args]
-  (when pred
-    (let [#^String message (apply format fmt args)
-          exception (Exception. message)
-          raw-trace (.getStackTrace exception)
-          boring? #(not= (.getMethodName #^StackTraceElement %) "doInvoke")
-          trace (into-array (drop 2 (drop-while boring? raw-trace)))]
-      (.setStackTrace exception trace)
-      (throw exception))))
-
-(defn- libspec?
-  "Returns true if x is a libspec"
-  [x]
-  (or (symbol? x)
-      (and (vector? x)
-           (or
-            (nil? (second x))
-            (keyword? (second x))))))
-
-(defn- prependss
-  "Prepends a symbol or a seq to coll"
-  [x coll]
-  (if (symbol? x)
-    (cons x coll)
-    (concat x coll)))
-
-(defn- root-resource
-  "Returns the root directory path for a lib"
-  {:tag String}
-  [lib]
-  (str \/
-       (.. (name lib)
-           (replace \- \_)
-           (replace \. \/))))
-
-(defn- root-directory
-  "Returns the root resource path for a lib"
-  [lib]
-  (let [d (root-resource lib)]
-    (subs d 0 (.lastIndexOf d "/"))))
-
-(def load)
-
-(defn- load-one
-  "Loads a lib given its name. If need-ns, ensures that the associated
-  namespace exists after loading. If require, records the load so any
-  duplicate loads can be skipped."
-  [lib need-ns require]
-  (load (root-resource lib))
-  (throw-if (and need-ns (not (find-ns lib)))
-            "namespace '%s' not found after loading '%s'"
-            lib (root-resource lib))
-  (when require
-    (dosync
-     (commute *loaded-libs* conj lib))))
-
-(defn- load-all
-  "Loads a lib given its name and forces a load of any libs it directly or
-  indirectly loads. If need-ns, ensures that the associated namespace
-  exists after loading. If require, records the load so any duplicate loads
-  can be skipped."
-  [lib need-ns require]
-  (dosync
-   (commute *loaded-libs* #(reduce conj %1 %2)
-            (binding [*loaded-libs* (ref (sorted-set))]
-              (load-one lib need-ns require)
-              @*loaded-libs*))))
-
-(defn- load-lib
-  "Loads a lib with options"
-  [prefix lib & options]
-  (throw-if (and prefix (pos? (.indexOf (name lib) (int \.))))
-            "lib names inside prefix lists must not contain periods")
-  (let [lib (if prefix (symbol (str prefix \. lib)) lib)
-        opts (apply hash-map options)
-        {:keys [as reload reload-all require use verbose]} opts
-        loaded (contains? @*loaded-libs* lib)
-        load (cond reload-all
-                   load-all
-                   (or reload (not require) (not loaded))
-                   load-one)
-        need-ns (or as use)
-        filter-opts (select-keys opts '(:exclude :only :rename))]
-    (binding [*loading-verbosely* (or *loading-verbosely* verbose)]
-      (if load
-        (load lib need-ns require)
-        (throw-if (and need-ns (not (find-ns lib)))
-                  "namespace '%s' not found" lib))
-      (when (and need-ns *loading-verbosely*)
-        (printf "(clojure.core/in-ns '%s)\n" (ns-name *ns*)))
-      (when as
-        (when *loading-verbosely*
-          (printf "(clojure.core/alias '%s '%s)\n" as lib))
-        (alias as lib))
-      (when use
-        (when *loading-verbosely*
-          (printf "(clojure.core/refer '%s" lib)
-          (doseq [opt filter-opts]
-            (printf " %s '%s" (key opt) (print-str (val opt))))
-          (printf ")\n"))
-        (apply refer lib (mapcat seq filter-opts))))))
-
-(defn- load-libs
-  "Loads libs, interpreting libspecs, prefix lists, and flags for
-  forwarding to load-lib"
-  [& args]
-  (let [flags (filter keyword? args)
-        opts (interleave flags (repeat true))
-        args (filter (complement keyword?) args)]
-    (doseq [arg args]
-      (if (libspec? arg)
-        (apply load-lib nil (prependss arg opts))
-        (let [[prefix & args] arg]
-          (throw-if (nil? prefix) "prefix cannot be nil")
-          (doseq [arg args]
-            (apply load-lib prefix (prependss arg opts))))))))
-
-;; Public
-
-
-(defn require
-  "Loads libs, skipping any that are already loaded. Each argument is
-  either a libspec that identifies a lib, a prefix list that identifies
-  multiple libs whose names share a common prefix, or a flag that modifies
-  how all the identified libs are loaded. Use :require in the ns macro
-  in preference to calling this directly.
-
-  Libs
-
-  A 'lib' is a named set of resources in classpath whose contents define a
-  library of Clojure code. Lib names are symbols and each lib is associated
-  with a Clojure namespace and a Java package that share its name. A lib's
-  name also locates its root directory within classpath using Java's
-  package name to classpath-relative path mapping. All resources in a lib
-  should be contained in the directory structure under its root directory.
-  All definitions a lib makes should be in its associated namespace.
-
-  'require loads a lib by loading its root resource. The root resource path
-  is derived from the lib name in the following manner:
-  Consider a lib named by the symbol 'x.y.z; it has the root directory
-  <classpath>/x/y/, and its root resource is <classpath>/x/y/z.clj. The root
-  resource should contain code to create the lib's namespace (usually by using
-  the ns macro) and load any additional lib resources.
-
-  Libspecs
-
-  A libspec is a lib name or a vector containing a lib name followed by
-  options expressed as sequential keywords and arguments.
-
-  Recognized options: :as
-  :as takes a symbol as its argument and makes that symbol an alias to the
-    lib's namespace in the current namespace.
-
-  Prefix Lists
-
-  It's common for Clojure code to depend on several libs whose names have
-  the same prefix. When specifying libs, prefix lists can be used to reduce
-  repetition. A prefix list contains the shared prefix followed by libspecs
-  with the shared prefix removed from the lib names. After removing the
-  prefix, the names that remain must not contain any periods.
-
-  Flags
-
-  A flag is a keyword.
-  Recognized flags: :reload, :reload-all, :verbose
-  :reload forces loading of all the identified libs even if they are
-    already loaded
-  :reload-all implies :reload and also forces loading of all libs that the
-    identified libs directly or indirectly load via require or use
-  :verbose triggers printing information about each load, alias, and refer
-
-  Example:
-
-  The following would load the libraries clojure.zip and clojure.set
-  abbreviated as 's'.
-
-  (require '(clojure zip [set :as s]))"
-
-  [& args]
-  (apply load-libs :require args))
-
-(defn use
-  "Like 'require, but also refers to each lib's namespace using
-  clojure.core/refer. Use :use in the ns macro in preference to calling
-  this directly.
-
-  'use accepts additional options in libspecs: :exclude, :only, :rename.
-  The arguments and semantics for :exclude, :only, and :rename are the same
-  as those documented for clojure.core/refer."
-  [& args] (apply load-libs :require :use args))
-
-(defn loaded-libs
-  "Returns a sorted set of symbols naming the currently loaded libs"
-  [] @*loaded-libs*)
-
-(defn load
-  "Loads Clojure code from resources in classpath. A path is interpreted as
-  classpath-relative if it begins with a slash or relative to the root
-  directory for the current namespace otherwise."
-  [& paths]
-  (doseq [#^String path paths]
-    (let [#^String path (if (.startsWith path "/")
-                          path
-                          (str (root-directory (ns-name *ns*)) \/ path))]
-      (when *loading-verbosely*
-        (printf "(clojure.core/load \"%s\")\n" path)
-        (flush))
-;      (throw-if (*pending-paths* path)
-;                "cannot load '%s' again while it is loading"
-;                path)
-      (when-not (*pending-paths* path)
-        (binding [*pending-paths* (conj *pending-paths* path)]
-          (clojure.lang.RT/load  (.substring path 1)))))))
-
-(defn compile
-  "Compiles the namespace named by the symbol lib into a set of
-  classfiles. The source for the lib must be in a proper
-  classpath-relative directory. The output files will go into the
-  directory specified by *compile-path*, and that directory too must
-  be in the classpath."
-  [lib]
-  (binding [*compile-files* true]
-    (load-one lib true true))
-  lib)
-
 ;;;;;;;;;;;;; nested associative ops ;;;;;;;;;;;
 
 (defn get-in
@@ -4464,11 +4220,535 @@
   "Returns true if future f is done"
   [#^java.util.concurrent.Future f] (.isDone f))
 
+;;;;;;;;;;; require/use/load, contributed by Stephen C. Gilardi ;;;;;;;;;;;;;;;;;;
+
+(declare load *load-progress-hook* *load-warning-hook*)
+
+(def #^{:private true} loader-suffix "__init")
+(def #^{:private true} compiled-ext ".class")
+(def #^{:private true} source-ext ".clj")
+
+(defonce #^{:private true :doc
+  "Index incremented for each successful unit load or reload"}
+  load-index (atom 0))
+
+(defstruct #^{:private true :doc
+  "Information about a unit's most recent successful load:
+  :index        ;; load-index value (a unique integer)
+  :name         ;; unit name (a symbol)
+  :origin       ;; code origin (:source or :compiled)
+  :timestamp    ;; reference resource timestamp (a Long)
+  :dependencies ;; direct dependencies (a vector of unit names)"}
+  load-record :index :name :origin :timestamp :dependencies)
+
+(defonce #^{:private true :doc
+  "For each loaded unit, maps unit name to its load record"}
+  load-state (atom {}))
+
+(defonce #^{:private true :doc
+  "Bound while loading to record direct dependencies. The root binding
+  initially refers to an empty vector to store clojure.core's
+  dependencies. It is changed to nil at the end of core.clj"}
+  *direct-dependencies* (atom []))
+
+(defonce #^{:private true :doc
+  "Bound while loading to the stack of units currently loading on this
+  thread, ordered by load start time, most recent first. The root binding
+  is initially '(clojure.core). It is changed to () at the end of
+  core.clj"}
+  *loads-pending* '(clojure.core))
+
+(defonce #^{:private true :doc
+  "Bound while loading to true while a verbose load is pending"}
+  *load-verbosely* false)
+
+(defn- load-progress
+  "Reports load progress with format and args appropriate for printf"
+  [fmt & args]
+  (apply *load-progress-hook* fmt args))
+
+(defn- load-warning
+  "Reports a load warning with format and args appropriate for printf"
+  [fmt & args]
+  (apply *load-warning-hook* fmt args))
+
+(defn- path-unit
+  "Returns the unit name associated with a path within classpath"
+  {:tag clojure.lang.Symbol}
+  [#^String path]
+  (-> path (.replace \_ \-) (.replace \/ \.) symbol))
+
+(defn- unit-path
+  "Returns the path within classpath associated with a unit name"
+  {:tag String}
+  [#^clojure.lang.Symbol unit]
+  (-> unit name (.replace \. \/) (.replace \- \_)))
+
+(defn- source-path
+  "Returns the path to unit's source resource within classpath"
+  {:tag String}
+  [#^clojure.lang.Symbol unit]
+  (-> unit unit-path (.concat source-ext)))
+
+(defn- compiled-path
+  "Returns the path to unit's compiled loader resource within classpath"
+  {:tag String}
+  [#^clojure.lang.Symbol unit]
+  (-> unit unit-path (.concat loader-suffix) (.concat compiled-ext)))
+
+(defn- compiled-loader-class-name
+  "Returns the unit's compiled loader class name"
+  {:tag String}
+  [#^clojure.lang.Symbol unit]
+  (-> unit name (.replace \- \_) (.concat loader-suffix)))
+
+(defn- resource-last-modified
+  "Returns the last-modified timestamp for a resource or nil if the
+  resource does not exist"
+  [#^String resource-path]
+  (when-let [url (.getResource (clojure.lang.RT/baseLoader) resource-path)]
+    (clojure.lang.RT/lastModified url resource-path)))
+
+(defn- compile-path-last-modified
+  "Returns the last-modified timestamp of the compiled loader resource for
+  unit within *compile-path*, or nil if the resource does not exist"
+  [unit]
+  (let [#^String path (str *compile-path* \/ (compiled-path unit))
+        last-modified (.lastModified (java.io.File. path))]
+    (and (not= 0 last-modified) last-modified)))
+
+(defn- unit-timestamps
+  "Returns a map of the timestamps associated with unit. Each is a Long
+  value representing the last modified time of a resource measured in
+  milliseconds since the epoch (00:00:00 GMT, January 1, 1970), or nil to
+  indicate \"missing\"."
+  [unit]
+  (let [source (resource-last-modified (source-path unit))
+        compiled (resource-last-modified (compiled-path unit))]
+    {:source source
+     :compiled compiled
+     :reference (or source compiled)
+     :loaded (-> @load-state unit :timestamp)
+     :compile-path (compile-path-last-modified unit)}))
+
+(defn- loaded-compiled?
+  "Returns true if unit was loaded from its compiled loader resource"
+  [unit]
+  (= (-> @load-state unit :origin) :compiled))
+
+(defn- unitspec?
+  "Returns true if x is a unitspec"
+  [x]
+  (or (symbol? x)
+      (and (vector? x)
+           (or (nil? (second x))
+               (keyword? (second x))))))
+
+(defn- prependss
+  "Prepends a symbol or a seq to coll"
+  [x coll]
+  (if (symbol? x)
+    (cons x coll)
+    (concat x coll)))
+
+(defn- root-resource
+  "Returns the root resource path for unit"
+  [unit]
+  (str \/ (unit-path unit)))
+
+(defn- root-directory
+  "Returns the root directory path for unit"
+  [unit]
+  (let [d (root-resource unit)]
+    (subs d 0 (.lastIndexOf d "/"))))
+
+(defn- check-cyclic-dependency
+  "If unit is already loading, throws an exception with a message showing
+  unit and the currently pending loads, ordered by load start time,
+  earliest first, with cyclic dependency highlighted."
+  [unit]
+  (when (some #{unit} *loads-pending*)
+    (let [pending (map #(if (= % unit) (str "[ " % " ]") %)
+                       (reverse (cons unit *loads-pending*)))
+          chain (apply str (interpose "->" pending))]
+      (throw (Exception. (format "Cyclic load dependency: %s" chain))))))
+
+(defn- record-load
+  "Updates load-state after a successful load and records unit as a direct
+  dependency of the currently loading unit (if any)"
+  [result unit timestamps]
+  (when result
+    (swap! load-state assoc unit
+           (merge (struct load-record)
+                  {:name unit :timestamp (timestamps :reference)} result)))
+  (when *direct-dependencies*
+    (swap! *direct-dependencies* conj unit)))
+
+(defn- load-plan
+  "Determines how to load or compile a unit based on timestamps and
+  options. Note: while timestamps are nominally in milliseconds, they often
+  have only 1 second resolution. In the rare case of identical source and
+  compiled resource timestamps, load-plan considers the compiled resource
+  to be superseded by a newer source resource."
+  [timestamps options]
+  (let [{:keys [source compiled reference loaded compile-path]} timestamps
+        {:keys [compile force maybe]} options]
+    (cond (not reference)
+          (if maybe :skipped :not-found)
+          (and compile
+               source
+               (or (not compile-path)
+                   (>= source compile-path)))
+          :compiled
+          (and (= loaded reference) (not force))
+          :skipped
+          (and (not loaded)
+               compiled
+               (or (not source)
+                   (> compiled source)))
+          :loaded-compiled
+          (and (= loaded 0) (not source))
+          :source-not-found
+          :else
+          :loaded-source)))
+
+(defn- load-execute
+  "Loads or compiles a unit according to plan. Throws if no resource is
+  available to load. Returns nil if the load was skipped, or a map
+  containing updated load information otherwise."
+  [plan unit]
+  (binding [*loads-pending* (cons unit *loads-pending*)
+            *direct-dependencies* (atom [])]
+    (condp = plan
+      :not-found
+      (throw (java.io.FileNotFoundException.
+              (format "Could not locate \"%s\" or \"%s\" on classpath"
+                      (source-path unit) (compiled-path unit))))
+      :skipped
+      nil
+      :source-not-found
+      (let [{:keys [index dependencies]} (@load-state unit)]
+        (load-warning "%s is stale, but \"%s\" is not available to reload\n"
+                      unit (source-path unit))
+        (apply load dependencies)
+        {:index index :origin :compiled :dependencies dependencies})
+      :loaded-compiled
+      (binding [*ns* *ns* *warn-on-reflection* *warn-on-reflection*]
+        (clojure.lang.RT/classForName (compiled-loader-class-name unit))
+        {:index (swap! load-index inc) :origin :compiled
+         :dependencies @*direct-dependencies*})
+      (do
+        (condp = plan
+          :compiled
+          (clojure.lang.RT/compile (source-path unit))
+          :loaded-source
+          (clojure.lang.RT/loadResourceScript (source-path unit)))
+        {:index (swap! load-index inc) :origin :source
+         :dependencies @*direct-dependencies*}))))
+
+(defn- mark-stale-units!
+  "Checks timestamps and dependency trees of units, marks all stale units
+  found so they will be reloaded on a subsequent load, and returns a lazy
+  seq of the subset of units that are stale. A unit is stale if:
+    - any of its dependencies is stale, or
+    - its resources have been modified since it was loaded, or
+    - it was loaded from a compiled resource, its source resource is
+      available, and any of its dependencies was loaded from a source
+      resource."
+  [units]
+  (let [stale? (atom nil)
+        stale*
+        (fn [unit]
+          (let [dependencies (-> @load-state unit :dependencies)]
+            (when (or
+                   (some identity (map @stale? dependencies))
+                   (let [{:keys [loaded reference source]}
+                         (unit-timestamps unit)]
+                     (or (not= loaded reference)
+                         (and (loaded-compiled? unit)
+                              source
+                              (not-every? loaded-compiled? dependencies)))))
+              (swap! load-state assoc-in [unit :timestamp] 0)
+              unit)))]
+    (reset! stale? (memoize stale*))
+    (filter identity (map @stale? units))))
+
+(defn- load-unit-internal
+  "Loads or compiles a unit: plans the load, executes the plan, and records
+  the result. If this is a top-level load, recurs if unit is stale after
+  loading.
+  Available options (all default to false):
+    :compile  if true, aot-compiles unit into *compile-path*
+    :force    if true, unit is loaded even if it's not stale
+    :maybe    if true, suppresses throwing an exception if unit's
+              resources are not available on classpath"
+  [unit options]
+  (let [timestamps (unit-timestamps unit)
+        plan (load-plan timestamps options)
+        result (load-execute plan unit)]
+    (record-load result unit timestamps)
+    (load-progress ";; %s %s\n" (.replace (name plan) \- \space) unit)
+    (when (and (empty? *loads-pending*) (seq (mark-stale-units! [unit])))
+      (load-progress ";; %s is stale, reloading\n" unit)
+      (recur unit options))))
+
+(defn- load-unit
+  "Loads or compiles a unit, processes references, aliases, and options"
+  [prefix unit & options]
+  (when (and prefix (pos? (.indexOf (name unit) (int \.))))
+    (throw (Exception.
+            "unit names inside prefix lists must not contain periods")))
+  (let [unit (if prefix (symbol (str prefix \. unit)) unit)
+        opts (apply hash-map options)
+        {:keys [as use compile verbose]} opts
+        filter-opts (select-keys opts '(:exclude :only :rename))
+        use (or use (boolean (seq filter-opts)))
+        need-ns (or as use compile)
+        op (if compile "compile" "load")
+        compile (or *compile-files* compile)
+        verbose (or *load-verbosely* verbose)
+        opts (assoc opts :compile compile)]
+    (binding [*compile-files* compile *load-verbosely* verbose]
+      (load-progress "(clojure.core/%s '%s)\n" op unit)
+      (when-not (= unit (first *loads-pending*))
+        (check-cyclic-dependency unit)
+        (load-unit-internal unit opts))
+      (when (and need-ns (not (find-ns unit)))
+        (throw (Exception.
+                (format "namespace %s not found after %s" unit op))))
+      (when need-ns
+        (load-progress "(clojure.core/in-ns '%s)\n" (ns-name *ns*)))
+      (when as
+        (load-progress "(clojure.core/alias '%s '%s)\n" as unit)
+        (alias as unit))
+      (when use
+        (load-progress "(clojure.core/refer '%s" unit)
+        (doseq [opt filter-opts]
+          (load-progress " %s '%s" (key opt) (print-str (val opt))))
+        (load-progress ")\n")
+        (apply refer unit (mapcat seq filter-opts))))))
+
+(defn- load-units
+  "Loads units, interpreting unitspecs, prefix lists, and flags for
+  forwarding to load-unit"
+  [& args]
+  (let [flags (filter keyword? args)
+        opts (interleave flags (repeat true))
+        args (filter (complement keyword?) args)]
+    (doseq [arg args]
+      (if (unitspec? arg)
+        (apply load-unit nil (prependss arg opts))
+        (let [[prefix & args] arg]
+          (when (nil? prefix)
+            (throw (Exception. "load prefix list: prefix cannot be nil")))
+          (doseq [arg args]
+            (apply load-unit prefix (prependss arg opts))))))))
+
+(defn- convert-paths
+  "Allows load and load-impl to take more flexible arguments: paths in
+  addition to symbols to specify units to load. See load."
+  [unit-or-path]
+  (if (string? unit-or-path)
+    (let [#^String path
+          (if (.startsWith unit-or-path "/")
+            unit-or-path
+            (str (root-directory (ns-name *ns*)) \/ unit-or-path))]
+      (path-unit (.substring path 1)))
+    unit-or-path))
+
+(defn- load-impl
+  "Used by compiled class initializers produced by gen-class to load their
+  implementation namespace. Like load, except because the class can only be
+  initialized once (reloading from source for the class itself is not an
+  option), all such loads are recorded as \"top-level\" even if they happen
+  to occur while another load is pending."
+  [& args]
+  (binding [*direct-dependencies* nil]
+    (apply load-units (map convert-paths args))))
+
+;; Public
+
+(defn load
+  "Loads Clojure code from resources within classpath. Clojure can load
+  code from two kinds of resources:
+    - \".clj\" resources containing Clojure source code
+    - \".class\" resources containing Clojure compiled code
+
+  A Clojure \"unit\" is the Clojure code associated with a single source
+  code resource. Unit names are symbols. Each unit is associated with a
+  \"unit path\" within classpath. The unit path is derived from the unit
+  name by:
+    - replacing dots with slashes, and
+    - replacing hyphens with underscores.
+
+  The paths to the unit's code resources are in turn derived from the unit
+  path by appending appropriate extensions. For example, the unit
+  clojure.contrib.java-utils is associated with the unit path
+  \"clojure/contrib/java_utils\" and the source code resource
+  \"clojure/contrib/java_utils.clj\".
+
+  A Clojure \"lib\" is a unit or group of units that defines a Clojure
+  namespace. Each lib has a \"root unit\" whose name is the lib's namespace
+  name. The root unit must contain an \"ns\" form which creates the
+  namespace and declares the units (and/or other libs) on which the lib
+  depends.
+
+  Libs can be ahead-of-time compiled for faster loading. The result of the
+  compilation will be (many) \".class\" files. At runtime, the units that
+  make up a lib may be present in source form, compiled form, or both.
+
+  Clojure tracks which units have been loaded, the last-modified times of
+  the associated code resources at the time of the load, and each unit's
+  direct dependencies. In aggregate, this information allows Clojure to
+  load units only when necessary. When asked to load a unit, Clojure will
+  actually load it only if it either has not yet been loaded or is stale.
+
+  A unit is stale if:
+    - any of its dependencies is stale, or
+    - its resources have been modified since it was loaded, or
+    - it was loaded from a compiled resource, its source resource is
+      available, and any of its dependencies was loaded from a source
+      resource.
+
+  After each top-level unit load, Clojure reloads units as necessary to
+  ensure that all loaded code in the tree of dependencies rooted at unit is
+  up to date.
+
+  Arguments
+
+  A call to load can load one or many units. It may contain any number of
+  the following arguments in any order:
+
+  Flags, Unitspecs, Prefix Lists, Paths
+
+  A Flag is a keyword that modifies load's behavior for all specified
+  units.
+
+    Recognized flags: :compile, :force, :maybe, :use, :verbose
+
+    Note: when :compile or :use is present, all units specified must be
+          libs
+
+    :compile causes each specified lib to be ahead-of-time compiled, saving
+             the results as \".class\" resources within *compile-path*
+    :use     generates a call to clojure.core/refer for each lib whether or
+             not its unitspec includes any filter options. Without filter
+             options, refers all of each lib's definitions into the current
+             namespace.
+    :force   forces each specified unit to load or reload even if it is up
+             to date
+    :maybe   indicates that loading the specified units is optional.
+             Suppresses the exception that is thrown by default if no code
+             for a unit is available.
+    :verbose triggers printing information about each compile, load, alias,
+             and refer
+
+  A Unitspec is:
+    - a unit name, or
+    - a vector containing a unit name optionally followed by options
+      expressed as sequential keywords and arguments.
+
+    Recognized options: :as, :exclude, :only, :rename
+    Note: if any options are present, the unit must be a lib.
+
+    :as takes a symbol as its argument and generates a call to
+    clojure.core/alias to make that symbol an alias to the lib's namespace
+    in the current namespace.
+
+    :exclude, :only, and/or :rename generate a call to clojure.core/refer
+    passing along these filter options and their arguments to refer some or
+    all of the the lib's definitions into the current namespace.
+
+  A Prefix List is a list containing a prefix (a symbol) followed by one or
+  more unitspecs. The effective unit name for each of the unitspecs is the
+  specified unit name with the prefix and a dot prepended. Extracting out a
+  common prefix is convenient when several units share the same prefix. For
+  example the prefix list: '(clojure.contrib java-utils sql miglayout)
+  specifies the three libs clojure.contrib.java-utils, clojure.contrib.sql
+  and clojure.contrib.miglayout.
+
+  Paths
+
+  A path is a string containing a path within classpath. The path is
+  interpreted as classpath-relative if it begins with a slash or relative
+  to the root directory for the current namespace otherwise. The path only
+  specifies the root path for the unit without any \".clj\" or \".class\"
+  extension.
+
+  Prefer using a :load clause in an \"ns\" form to calling load directly."
+  [& args]
+  (apply load-units (map convert-paths args)))
+
+(defn require
+  "Loads libs, skipping any that are already loaded and up to
+  date. Arguments are the same as for clojure.core/load except that Paths
+  are not supported. Prefer using a :require clause in an \"ns\" form to
+  calling require directly."
+  [& args]
+  (apply load-units args))
+
+(defn use
+  "Loads libs and refers names from their namespaces into the current
+  namespace. Arguments are the same as for clojure.core/load except that
+  Paths are not supported. Without filter arguments, all of the names in
+  the libs will be referred in. Prefer using a :use clause in an \"ns\"
+  form to calling use directly."
+  [& args]
+  (apply load-units :use args))
+
+(defn compile
+  "Ahead-of-time compiles libs into \".class\" files in the directory named
+  by *compile-path*. Arguments are the same as for clojure.core/load except
+  that Paths are not supported. The directory named by *compile-path* must
+  be a classpath root."
+  [& args]
+  (apply load-units :compile args))
+
+(defn loaded-libs
+  "Returns a sorted set of symbols naming the currently loaded libs"
+  [] (into (sorted-set) (filter find-ns (keys @load-state))))
+
+(defn load-records
+  "Returns a seq of records with info about each currently loaded unit
+  sorted by load index"
+  [] (sort #(compare (:index %1) (:index %2)) (vals @load-state)))
+
+(defn refresh
+  "Reloads stale units. A unit is stale if:
+    - any of its dependencies is stale, or
+    - its resources have been modified since it was loaded, or
+    - it was loaded from a compiled resource, its source resource is
+      available, and any of its dependencies was loaded from a source
+      resource.
+  Arguments are the same as for clojure.core/load except that Paths are not
+  supported. If any units are specified, refreshes them, otherwise
+  refreshes all loaded units."
+  [& args]
+  (let [flags (filter keyword? args)
+        args (remove keyword? args)
+        units (or (seq args) (map :name (load-records)))]
+    (binding [*loads-pending* '(:refresh)]
+      (while
+       (when-let [stale (seq (mark-stale-units! units))]
+         (apply load-units (concat flags stale))
+         stale)))))
+
+(defn *load-warning-hook*
+  "Bound to a function called to report load warning messages. Default
+  binding prints message to *err*."
+  [fmt & args]
+  (.printf *err* (str "Warning: " fmt) (into-array Object args)))
+
+(defn *load-progress-hook*
+  "Bound to a function called to report load progress messages. Default
+  binding prints message to *err* when *load-verbosely* is true."
+  [fmt & args]
+  (when *load-verbosely*
+    (.printf *err* fmt (into-array Object args))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; helper files ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (alter-meta! (find-ns 'clojure.core) assoc :doc "Fundamental library of the Clojure language")
-(load "core_proxy")
-(load "core_print")
-(load "genclass")
+(load '(clojure core_proxy core_print genclass))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; futures (needs proxy);;;;;;;;;;;;;;;;;;
 (defn future-call 
@@ -4679,3 +4959,18 @@
           (recur (conj ret (first items)) (next items))
           ret)))))
 
+(load :maybe '(clojure zip xml set))
+
+;update load-state to be as if clojure.core were loaded by clojure.core/load
+(when-not (@load-state 'clojure.core)
+  (let [index (swap! load-index inc)
+        unit 'clojure.core
+        timestamps (unit-timestamps unit)
+        {:keys [source compiled]} timestamps
+        origin (if (and compiled (or (not source) (> compiled source)))
+                 :compiled :source)
+        result {:index index :origin origin
+                :dependencies @*direct-dependencies*}]
+    (alter-var-root #'*direct-dependencies* (constantly nil))
+    (record-load result unit timestamps)
+    (alter-var-root #'*loads-pending* pop)))

@@ -177,6 +177,7 @@ final static public Var ERR =
 		Var.intern(CLOJURE_NS, Symbol.create("*err*"),
 		           new PrintWriter(new OutputStreamWriter(System.err), true));
 final static Keyword TAG_KEY = Keyword.intern(null, "tag");
+final static Keyword MAYBE_KEY = Keyword.intern(null, "maybe");
 final static public Var AGENT = Var.intern(CLOJURE_NS, Symbol.create("*agent*"), null);
 final static public Var READEVAL = Var.intern(CLOJURE_NS, Symbol.create("*read-eval*"), T);
 final static public Var ASSERT = Var.intern(CLOJURE_NS, Symbol.create("*assert*"), T);
@@ -351,7 +352,7 @@ static public long lastModified(URL url, String libfile) throws Exception{
 	}
 }
 
-static void compile(String cljfile) throws Exception{
+static public void compile(String cljfile) throws Exception{
 	InputStream ins = baseLoader().getResourceAsStream(cljfile);
 	if(ins != null) {
 		try {
@@ -404,9 +405,6 @@ static public void load(String scriptbase, boolean failIfNotFound) throws Except
 
 static void doInit() throws Exception{
 	load("clojure/core");
-	load("clojure/zip", false);
-	load("clojure/xml", false);
-	load("clojure/set", false);
 
 	Var.pushThreadBindings(
 			RT.map(CURRENT_NS, CURRENT_NS.deref(),
@@ -417,9 +415,10 @@ static void doInit() throws Exception{
 
 		Var in_ns = var("clojure.core", "in-ns");
 		Var refer = var("clojure.core", "refer");
+		Var load = var("clojure.core", "load");
 		in_ns.invoke(USER);
 		refer.invoke(CLOJURE);
-		maybeLoadResourceScript("user.clj");
+        load.invoke(MAYBE_KEY, USER);
 	}
 	finally {
 		Var.popThreadBindings();

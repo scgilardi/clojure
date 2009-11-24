@@ -13,6 +13,9 @@
   <property name="jsrc" location="${src}/jvm"/>
   <property name="cljsrc" location="${src}/clj"/>
   <property name="build" location="classes"/>
+  <property name="teststage" location="test-stage"/>
+  <property name="testsrc" location="${teststage}/src"/>
+  <property name="testclasses" location="${teststage}/classes"/>
 
   <!-- version related properties -->
   <property file="${cljsrc}/clojure/version.properties"/>
@@ -119,12 +122,42 @@
     <copy file="${clojure_jar}" tofile="${clojure_noversion_jar}" />
   </target>
 
-  <target name="test"
+  <target name="test-init">
+    <delete dir="${teststage}"/>
+    <mkdir dir="${testsrc}"/>
+    <mkdir dir="${testclasses}"/>
+    <copy todir="${testsrc}">
+      <fileset dir="${test}/clojure/test_clojure">
+        <include name="load/*.clj"/>
+      </fileset>
+    </copy>
+    <!-- sleep to ensure (not= source-timestamp compiled-timestamp) -->
+    <!-- (the complex load test requires a repeatable scenario) -->
+    <sleep milliseconds="1500"/>
+    <java classname="clojure.lang.Compile"
+          failonerror="true">
+      <sysproperty key="clojure.compile.path" value="${testclasses}"/>
+      <classpath>
+        <path location="${testsrc}"/>
+        <path location="${testclasses}"/>
+        <path location="${clojure_jar}"/>
+      </classpath>
+      <arg value="load.alib"/>
+      <arg value="load.source-missing1"/>
+      <arg value="load.tree1a"/>
+      <arg value="load.tree2a"/>
+      <arg value="load.tree3a"/>
+    </java>
+  </target>
+
+  <target name="test" depends="test-init"
           description="Run clojure tests">
 <!--           depends="clojure"> -->
     <java classname="clojure.main" failonerror="true">
       <classpath>
         <path location="${test}"/>
+        <path location="${testsrc}"/>
+        <path location="${testclasses}"/>
         <path location="${clojure_jar}"/>
       </classpath>
       <arg value="-e"/>
