@@ -36,7 +36,7 @@ public int compare(Object o1, Object o2){
 		}
 	catch(Exception e)
 		{
-		throw new RuntimeException(e);
+		throw Util.runtimeException(e);
 		}
 }
 }

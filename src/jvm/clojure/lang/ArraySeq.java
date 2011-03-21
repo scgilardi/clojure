@@ -99,7 +99,7 @@ public ArraySeq withMeta(IPersistentMap meta){
 	return new ArraySeq(meta, array, i);
 }
 
-public Object reduce(IFn f) throws Exception{
+public Object reduce(IFn f) {
 	if(oa != null)
 		{
 		Object ret = oa[i];
@@ -114,7 +114,7 @@ public Object reduce(IFn f) throws Exception{
 	return ret;
 }
 
-public Object reduce(IFn f, Object start) throws Exception{
+public Object reduce(IFn f, Object start) {
 	if(oa != null)
 		{
 		Object ret = f.invoke(start, oa[i]);
@@ -195,14 +195,14 @@ static public class ArraySeq_int extends ASeq implements IndexedSeq, IReduce{
 		return new ArraySeq_int(meta, array, i);
 	}
 
-	public Object reduce(IFn f) throws Exception{
+	public Object reduce(IFn f) {
 		Object ret = array[i];
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);
 		return ret;
 	}
 
-	public Object reduce(IFn f, Object start) throws Exception{
+	public Object reduce(IFn f, Object start) {
 		Object ret = f.invoke(start, array[i]);
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);
@@ -271,14 +271,14 @@ static public class ArraySeq_float extends ASeq implements IndexedSeq, IReduce{
 		return new ArraySeq_float(meta, array, i);
 	}
 
-	public Object reduce(IFn f) throws Exception{
+	public Object reduce(IFn f) {
 		Object ret = array[i];
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);
 		return ret;
 	}
 
-	public Object reduce(IFn f, Object start) throws Exception{
+    public Object reduce(IFn f, Object start) {
 		Object ret = f.invoke(start, array[i]);
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);
@@ -346,14 +346,14 @@ static public class ArraySeq_double extends ASeq implements IndexedSeq, IReduce{
 		return new ArraySeq_double(meta, array, i);
 	}
 
-	public Object reduce(IFn f) throws Exception{
+	public Object reduce(IFn f) {
 		Object ret = array[i];
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);
 		return ret;
 	}
 
-	public Object reduce(IFn f, Object start) throws Exception{
+	public Object reduce(IFn f, Object start) {
 		Object ret = f.invoke(start, array[i]);
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);
@@ -421,14 +421,14 @@ static public class ArraySeq_long extends ASeq implements IndexedSeq, IReduce{
 		return new ArraySeq_long(meta, array, i);
 	}
 
-	public Object reduce(IFn f) throws Exception{
+	public Object reduce(IFn f) {
 		Object ret = array[i];
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);
 		return ret;
 	}
 
-	public Object reduce(IFn f, Object start) throws Exception{
+	public Object reduce(IFn f, Object start) {
 		Object ret = f.invoke(start, array[i]);
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);
@@ -496,14 +496,14 @@ static public class ArraySeq_byte extends ASeq implements IndexedSeq, IReduce{
 		return new ArraySeq_byte(meta, array, i);
 	}
 
-	public Object reduce(IFn f) throws Exception{
+	public Object reduce(IFn f) {
 		Object ret = array[i];
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);
 		return ret;
 	}
 
-	public Object reduce(IFn f, Object start) throws Exception{
+	public Object reduce(IFn f, Object start) {
 		Object ret = f.invoke(start, array[i]);
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);
@@ -571,14 +571,14 @@ static public class ArraySeq_char extends ASeq implements IndexedSeq, IReduce{
 		return new ArraySeq_char(meta, array, i);
 	}
 
-	public Object reduce(IFn f) throws Exception{
+	public Object reduce(IFn f) {
 		Object ret = array[i];
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);
 		return ret;
 	}
 
-	public Object reduce(IFn f, Object start) throws Exception{
+	public Object reduce(IFn f, Object start) {
 		Object ret = f.invoke(start, array[i]);
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);
@@ -646,14 +646,14 @@ static public class ArraySeq_boolean extends ASeq implements IndexedSeq, IReduce
 		return new ArraySeq_boolean(meta, array, i);
 	}
 
-	public Object reduce(IFn f) throws Exception{
+	public Object reduce(IFn f) {
 		Object ret = array[i];
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);
 		return ret;
 	}
 
-	public Object reduce(IFn f, Object start) throws Exception{
+	public Object reduce(IFn f, Object start) {
 		Object ret = f.invoke(start, array[i]);
 		for(int x = i + 1; x < array.length; x++)
 			ret = f.invoke(ret, array[x]);

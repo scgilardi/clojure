@@ -14,10 +14,10 @@ package clojure.lang;
 
 public interface IChunkedSeq extends ISeq{
 
-IChunk chunkedFirst() throws Exception;
+IChunk chunkedFirst() ;
 
-ISeq chunkedNext() throws Exception;
+ISeq chunkedNext() ;
 
-ISeq chunkedMore() throws Exception;
+ISeq chunkedMore() ;
 
 }

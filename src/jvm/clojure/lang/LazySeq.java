@@ -44,7 +44,7 @@ final synchronized Object sval(){
 			}
 		catch(Exception e)
 			{
-			throw new RuntimeException(e);
+			throw Util.runtimeException(e);
 			}
 		}
 	if(sv != null)

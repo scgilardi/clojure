@@ -28,7 +28,7 @@ private static final Var compile_path = RT.var("clojure.core", "*compile-path*")
 private static final Var compile = RT.var("clojure.core", "compile");
 private static final Var warn_on_reflection = RT.var("clojure.core", "*warn-on-reflection*");
 
-public static void main(String[] args) throws Exception{
+public static void main(String[] args) throws IOException{
 
 	OutputStreamWriter out = (OutputStreamWriter) RT.OUT.deref();
 	PrintWriter err = RT.errPrintWriter();
