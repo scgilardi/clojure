@@ -104,6 +104,19 @@
              *e nil]
      ~@body))
 
+(defn repl-around
+  "Default :around hook for repl"
+  [f]
+  (with-bindings
+    (f)))
+
+(defn repl-init
+  "Default :init hook for repl"
+  []
+  (use '[clojure.repl :only (source apropos dir pst doc find-doc)])
+  (use '[clojure.java.javadoc :only (javadoc)])
+  (use '[clojure.pprint :only (pp pprint)]))
+
 (defn repl-prompt
   "Default :prompt hook for repl"
   []
@@ -184,9 +197,16 @@
   .unread and collapsing CR, LF, and CRLF into a single \\newline. Options
   are sequential keyword-value pairs. Available options and their defaults:
 
-     - :init, function of no arguments, initialization hook called with
-       bindings for set!-able vars in place.
-       default: #()
+     - :around, function of one argument, enables overriding the
+       default repl behaviors of pushing new bindings for the vars in
+       with-bindings and always returning nil. The argument is a
+       function of no arguments that must be called within the :around
+       function.
+       default: repl-around
+
+     - :init, function of no arguments, initialization hook called
+       once before the first repl prompt.
+       default: repl-init
 
      - :need-prompt, function of no arguments, called before each
        read-eval-print except the first, the user will be prompted if it
@@ -219,11 +239,12 @@
      - :caught, function of one argument, a throwable, called when
        read, eval, or print throws an exception or error
        default: repl-caught"
-  [& options]
+  [& {:as options}]
   (let [cl (.getContextClassLoader (Thread/currentThread))]
     (.setContextClassLoader (Thread/currentThread) (clojure.lang.DynamicClassLoader. cl)))
-  (let [{:keys [init need-prompt prompt flush read eval print caught]
-         :or {init        #()
+  (let [{:keys [around init need-prompt prompt flush read eval print caught]
+         :or {around      repl-around
+              init        repl-init
               need-prompt (if (instance? LineNumberingPushbackReader *in*)
                             #(.atLineStart ^LineNumberingPushbackReader *in*)
                             #(identity true))
@@ -232,45 +253,42 @@
               read        repl-read
               eval        eval
               print       prn
-              caught      repl-caught}}
-        (apply hash-map options)
+              caught      repl-caught}} options
         request-prompt (Object.)
-        request-exit (Object.)
-        read-eval-print
-        (fn []
-          (try
-           (let [input (read request-prompt request-exit)]
-             (or (#{request-prompt request-exit} input)
-                 (let [value (eval input)]
-                   (print value)
-                   (set! *3 *2)
-                   (set! *2 *1)
-                   (set! *1 value))))
-           (catch Throwable e
-             (caught e)
-             (set! *e e))))]
-    (with-bindings
-     (try
-      (init)
-      (catch Throwable e
-        (caught e)
-        (set! *e e)))
-     (use '[clojure.repl :only (source apropos dir pst doc find-doc)])
-     (use '[clojure.java.javadoc :only (javadoc)])
-     (use '[clojure.pprint :only (pp pprint)])
-     (prompt)
-     (flush)
-     (loop []
-       (when-not 
-       	 (try (= (read-eval-print) request-exit)
-	  (catch Throwable e
-	   (caught e)
-	   (set! *e e)
-	   nil))
-         (when (need-prompt)
-           (prompt)
-           (flush))
-         (recur))))))
+        request-exit (Object.)]
+    (letfn [(read-eval-print []
+              (try
+                (let [input (read request-prompt request-exit)]
+                  (or (#{request-prompt request-exit} input)
+                      (let [value (eval input)]
+                        (print value)
+                        (set! *3 *2)
+                        (set! *2 *1)
+                        (set! *1 value))))
+                (catch Throwable e
+                  (caught e)
+                  (set! *e e))))
+            (init-loop []
+              (try
+                (init)
+                (catch Throwable e
+                  (caught e)
+                  (set! *e e)))
+              (prompt)
+              (flush)
+              (loop []
+                (when-not
+                    (try
+                      (= (read-eval-print) request-exit)
+                      (catch Throwable e
+                        (caught e)
+                        (set! *e e)
+                        nil))
+                  (when (need-prompt)
+                    (prompt)
+                    (flush))
+                  (recur))))]
+      (around init-loop))))
 
 (defn load-script
   "Loads Clojure source from a file or resource given its path. Paths
