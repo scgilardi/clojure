@@ -9,7 +9,7 @@
 ;; Originally contributed by Stephen C. Gilardi
 
 (ns ^{:doc "Top-level main function for Clojure REPL and scripts."
-       :author "Stephen C. Gilardi and Rich Hickey"}
+      :author "Stephen C. Gilardi and Rich Hickey"}
   clojure.main
   (:refer-clojure :exclude [with-bindings])
   (:import (clojure.lang Compiler Compiler$CompilerException
@@ -22,10 +22,10 @@
 ;;;;;;;;;;;;;;;;;;; redundantly copied from clojure.repl to avoid dep ;;;;;;;;;;;;;;
 #_(defn root-cause [x] x)
 #_(defn stack-element-str
-  "Returns a (possibly unmunged) string representation of a StackTraceElement"
-  {:added "1.3"}
-  [^StackTraceElement el]
-  (.getClassName el))
+    "Returns a (possibly unmunged) string representation of a StackTraceElement"
+    {:added "1.3"}
+    [^StackTraceElement el]
+    (.getClassName el))
 
 (def ^:private demunge-map
   (into {"$" "/"} (map (fn [[k v]] [v k]) clojure.lang.Compiler/CHAR_MAP)))
@@ -41,12 +41,12 @@
                                         [(re-groups m) (.start m) (.end m)])))]
     (apply str
            (concat
-             (mapcat (fn [[_ _ start] [groups end]]
-                       (if end
-                         [(subs s start end) (f groups)]
-                         [(subs s start)]))
-                     (cons [0 0 0] mseq)
-                     (concat mseq [nil]))))))
+            (mapcat (fn [[_ _ start] [groups end]]
+                      (if end
+                        [(subs s start end) (f groups)]
+                        [(subs s start)]))
+                    (cons [0 0 0] mseq)
+                    (concat mseq [nil]))))))
 
 (defn demunge
   "Given a string representation of a fn class,
@@ -291,12 +291,12 @@
   [str]
   (let [eof (Object.)
         reader (LineNumberingPushbackReader. (java.io.StringReader. str))]
-      (loop [input (read reader false eof)]
-        (when-not (= input eof)
-          (let [value (eval input)]
-            (when-not (nil? value)
-              (prn value))
-            (recur (read reader false eof)))))))
+    (loop [input (read reader false eof)]
+      (when-not (= input eof)
+        (let [value (eval input)]
+          (when-not (nil? value)
+            (prn value))
+          (recur (read reader false eof)))))))
 
 (defn- init-dispatch
   "Returns the handler associated with an init opt"
@@ -419,12 +419,12 @@ java -cp clojure.jar clojure.main -i init.clj script.clj args...")
   classpath. Classpath-relative paths have prefix of @ or @/"
   [& args]
   (try
-   (if args
-     (loop [[opt arg & more :as args] args inits []]
-       (if (init-dispatch opt)
-         (recur more (conj inits [opt arg]))
-         ((main-dispatch opt) args inits)))
-     (repl-opt nil nil))
-   (finally 
+    (if args
+      (loop [[opt arg & more :as args] args inits []]
+        (if (init-dispatch opt)
+          (recur more (conj inits [opt arg]))
+          ((main-dispatch opt) args inits)))
+      (repl-opt nil nil))
+    (finally
      (flush))))
 
