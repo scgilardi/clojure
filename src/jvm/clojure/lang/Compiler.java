@@ -5437,7 +5437,7 @@ public static Object eval(Object form, boolean freshLoader) throws Exception{
 	catch(Throwable e)
 		{
 		if(!(e instanceof CompilerException))
-			throw new CompilerException((String) SOURCE.deref(), (Integer) LINE.deref(), e);
+			throw new CompilerException((String) SOURCE_PATH.deref(), (Integer) LINE.deref(), e);
 		else
 			throw (CompilerException) e;
 		}
